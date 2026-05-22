@@ -271,6 +271,39 @@ function WorkspacePage() {
 		[workspaceId, activeTabId, tabs, setActiveTab],
 	);
 
+	// Middle mouse button cycles to next tab — covers Logitech MX scroll-wheel
+	// click and similar. Reads store state on each click so we don't have to
+	// re-bind on every tab change.
+	useEffect(() => {
+		if (!workspaceId) return;
+		const handler = (e: MouseEvent) => {
+			if (e.button !== 1) return;
+			const target = e.target as HTMLElement | null;
+			if (
+				target?.tagName === "INPUT" ||
+				target?.tagName === "TEXTAREA" ||
+				target?.isContentEditable
+			) {
+				return;
+			}
+			e.preventDefault();
+			const state = useTabsStore.getState();
+			const wsTabs = state.tabs.filter((t) => t.workspaceId === workspaceId);
+			if (wsTabs.length === 0) return;
+			const currentActive = resolveActiveTabIdForWorkspace({
+				workspaceId,
+				tabs: state.tabs,
+				activeTabIds: state.activeTabIds,
+				tabHistoryStacks: state.tabHistoryStacks,
+			});
+			const idx = wsTabs.findIndex((t) => t.id === currentActive);
+			const nextIdx = idx >= wsTabs.length - 1 || idx === -1 ? 0 : idx + 1;
+			state.setActiveTab(workspaceId, wsTabs[nextIdx].id);
+		};
+		window.addEventListener("auxclick", handler);
+		return () => window.removeEventListener("auxclick", handler);
+	}, [workspaceId]);
+
 	const switchToTab = useCallback(
 		(index: number) => {
 			const tab = tabs[index];
