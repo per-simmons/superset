@@ -45,6 +45,12 @@ export const generateId = (prefix: string): string => {
 	return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
 };
 
+export const getPaneDisplayName = (pane: Pane): string => {
+	const userTitle = pane.userTitle?.trim();
+	if (userTitle) return userTitle;
+	return pane.name || "Terminal";
+};
+
 export const getTabDisplayName = (tab: Tab): string => {
 	const userTitle = tab.userTitle?.trim();
 	if (userTitle) {

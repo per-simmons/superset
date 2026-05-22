@@ -115,6 +115,13 @@ export interface TabsStore extends TabsState {
 	markPaneAsUsed: (paneId: string) => void;
 	setPaneStatus: (paneId: string, status: PaneStatus) => void;
 	setPaneName: (paneId: string, name: string) => void;
+	/** Set the user-chosen pane title (via cmd+I rename). Pass undefined or empty
+	 * string to clear and fall back to the auto name. */
+	setPaneUserTitle: (paneId: string, userTitle: string | undefined) => void;
+	setPaneTerminalProfile: (
+		paneId: string,
+		profileId: string | undefined,
+	) => void;
 	clearWorkspaceAttentionStatus: (workspaceId: string) => void;
 	resetWorkspaceStatus: (workspaceId: string) => void;
 	updatePaneCwd: (

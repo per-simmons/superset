@@ -56,30 +56,32 @@ export function TabPane({
 	onMoveToNewTab,
 }: TabPaneProps) {
 	const paneName = useTabsStore((s) => s.panes[paneId]?.name);
+	const paneUserTitle = useTabsStore((s) => s.panes[paneId]?.userTitle);
 	const paneStatus = useTabsStore((s) => s.panes[paneId]?.status);
-	const setPaneName = useTabsStore((s) => s.setPaneName);
+	const setPaneUserTitle = useTabsStore((s) => s.setPaneUserTitle);
 	const isRenamingThisPane = useRenamePaneStore(
 		(s) => s.renamingPaneId === paneId,
 	);
 	const stopRenamingPane = useRenamePaneStore((s) => s.stopRenamingPane);
-	const [draftName, setDraftName] = useState(paneName ?? "");
+	const displayName = paneUserTitle?.trim() || paneName || "Terminal";
+	const [draftName, setDraftName] = useState(displayName);
 	const renameInputRef = useRef<HTMLInputElement>(null);
 
 	useEffect(() => {
 		if (isRenamingThisPane) {
-			setDraftName(paneName ?? "");
+			setDraftName(paneUserTitle?.trim() || paneName || "");
 			requestAnimationFrame(() => {
 				renameInputRef.current?.focus();
 				renameInputRef.current?.select();
 			});
 		}
-	}, [isRenamingThisPane, paneName]);
+	}, [isRenamingThisPane, paneUserTitle, paneName]);
 
 	const commitRename = () => {
 		const trimmed = draftName.trim();
-		if (trimmed && trimmed !== paneName) {
-			setPaneName(paneId, trimmed);
-		}
+		// Always set userTitle (even to empty -> undefined to clear) so we don't
+		// touch the auto-name. Setting same value is a noop in the store.
+		setPaneUserTitle(paneId, trimmed || undefined);
 		stopRenamingPane();
 	};
 
@@ -141,7 +143,7 @@ export function TabPane({
 							/>
 						) : (
 							<span className="truncate text-sm text-muted-foreground">
-								{paneName || "Terminal"}
+								{displayName}
 							</span>
 						)}
 						{paneStatus && paneStatus !== "idle" && (

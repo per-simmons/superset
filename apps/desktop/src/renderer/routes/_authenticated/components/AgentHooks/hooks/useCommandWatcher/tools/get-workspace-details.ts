@@ -35,7 +35,7 @@ async function execute(
 			.map(([id, pane]) => ({
 				id,
 				type: pane.type,
-				name: pane.name,
+				name: pane.userTitle?.trim() || pane.name,
 				status: pane.status ?? "idle",
 			}));
 

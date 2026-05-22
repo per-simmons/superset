@@ -953,6 +953,33 @@ export const useTabsStore = create<TabsStore>()(
 					});
 				},
 
+				setPaneUserTitle: (paneId, userTitle) => {
+					const state = get();
+					const pane = state.panes[paneId];
+					if (!pane) return;
+					const trimmed = userTitle?.trim() || undefined;
+					if (pane.userTitle === trimmed) return;
+					set({
+						panes: {
+							...state.panes,
+							[paneId]: { ...pane, userTitle: trimmed },
+						},
+					});
+				},
+
+				setPaneTerminalProfile: (paneId, profileId) => {
+					const state = get();
+					const pane = state.panes[paneId];
+					if (!pane || pane.terminalProfileId === profileId) return;
+
+					set({
+						panes: {
+							...state.panes,
+							[paneId]: { ...pane, terminalProfileId: profileId },
+						},
+					});
+				},
+
 				clearWorkspaceAttentionStatus: (workspaceId) => {
 					const state = get();
 					const workspaceTabs = state.tabs.filter(

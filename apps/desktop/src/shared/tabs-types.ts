@@ -129,6 +129,9 @@ export interface Pane {
 	tabId: string;
 	type: PaneType;
 	name: string;
+	/** User-set name via cmd+I. When present, takes precedence over name and is
+	 * not overwritten by OSC title-change escape sequences from the terminal. */
+	userTitle?: string;
 	isNew?: boolean;
 	status?: PaneStatus;
 	initialCwd?: string;
@@ -139,6 +142,7 @@ export interface Pane {
 	chatMastra?: ChatMastraPaneState; // For Mastra chat panes
 	browser?: BrowserPaneState; // For browser (webview) panes
 	devtools?: DevToolsPaneState; // For devtools panes
+	terminalProfileId?: string; // Terminal color profile override
 }
 
 export interface ChatMastraPaneState {
