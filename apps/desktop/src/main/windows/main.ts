@@ -14,6 +14,7 @@ import {
 import type { AgentLifecycleEvent } from "shared/notification-types";
 import { createIPCHandler } from "trpc-electron/main";
 import { productName } from "~/package.json";
+import { getWorkspacesInVisualOrder } from "lib/trpc/routers/workspaces/procedures/query";
 import { appState } from "../lib/app-state";
 import { browserManager } from "../lib/browser/browser-manager";
 import { createApplicationMenu, registerMenuHotkeyUpdates } from "../lib/menu";
@@ -23,6 +24,11 @@ import {
 	notificationsApp,
 	notificationsEmitter,
 } from "../lib/notifications/server";
+import {
+	configureTestServer,
+	TEST_SERVER_PORT,
+	testServerApp,
+} from "../lib/test-server";
 import {
 	extractWorkspaceIdFromUrl,
 	getNotificationTitle,
@@ -135,6 +141,39 @@ export async function MainWindow() {
 		window.webContents.setBackgroundThrottling(false);
 	}
 
+	// Ctrl+Tab / Ctrl+Shift+Tab: Chromium eats these at the compositor level,
+	// so the renderer's keydown listener never fires. Intercept here and navigate
+	// via the existing deep-link-navigate IPC channel.
+	window.webContents.on("before-input-event", (_event, input) => {
+		if (
+			input.key === "Tab" &&
+			input.control &&
+			!input.alt &&
+			!input.meta &&
+			input.type === "keyDown"
+		) {
+			_event.preventDefault();
+			const currentUrl = window.webContents.getURL();
+			const currentWorkspaceId = extractWorkspaceIdFromUrl(currentUrl);
+			if (!currentWorkspaceId) return;
+
+			const orderedIds = getWorkspacesInVisualOrder();
+			if (orderedIds.length < 2) return;
+
+			const currentIndex = orderedIds.indexOf(currentWorkspaceId);
+			if (currentIndex === -1) return;
+
+			const targetIndex = input.shift
+				? (currentIndex === 0 ? orderedIds.length - 1 : currentIndex - 1)
+				: (currentIndex === orderedIds.length - 1 ? 0 : currentIndex + 1);
+
+			window.webContents.send(
+				"deep-link-navigate",
+				`/workspace/${orderedIds[targetIndex]}`,
+			);
+		}
+	});
+
 	if (ipcHandler) {
 		ipcHandler.attachWindow(window);
 	} else {
@@ -153,6 +192,15 @@ export async function MainWindow() {
 			);
 		},
 	);
+
+	if (env.NODE_ENV === "development") {
+		configureTestServer(() => window);
+		testServerApp.listen(TEST_SERVER_PORT, "127.0.0.1", () => {
+			console.log(
+				`[test-server] Listening on http://127.0.0.1:${TEST_SERVER_PORT}`,
+			);
+		});
+	}
 
 	const notificationManager = new NotificationManager({
 		isSupported: () => Notification.isSupported(),

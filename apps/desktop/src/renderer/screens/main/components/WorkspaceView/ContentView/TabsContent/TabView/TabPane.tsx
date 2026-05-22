@@ -1,6 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MosaicBranch } from "react-mosaic-component";
 import { StatusIndicator } from "renderer/screens/main/components/StatusIndicator";
+import { useRenamePaneStore } from "renderer/stores/rename-pane-store";
 import {
 	registerPaneRef,
 	unregisterPaneRef,
@@ -56,6 +57,31 @@ export function TabPane({
 }: TabPaneProps) {
 	const paneName = useTabsStore((s) => s.panes[paneId]?.name);
 	const paneStatus = useTabsStore((s) => s.panes[paneId]?.status);
+	const setPaneName = useTabsStore((s) => s.setPaneName);
+	const isRenamingThisPane = useRenamePaneStore(
+		(s) => s.renamingPaneId === paneId,
+	);
+	const stopRenamingPane = useRenamePaneStore((s) => s.stopRenamingPane);
+	const [draftName, setDraftName] = useState(paneName ?? "");
+	const renameInputRef = useRef<HTMLInputElement>(null);
+
+	useEffect(() => {
+		if (isRenamingThisPane) {
+			setDraftName(paneName ?? "");
+			requestAnimationFrame(() => {
+				renameInputRef.current?.focus();
+				renameInputRef.current?.select();
+			});
+		}
+	}, [isRenamingThisPane, paneName]);
+
+	const commitRename = () => {
+		const trimmed = draftName.trim();
+		if (trimmed && trimmed !== paneName) {
+			setPaneName(paneId, trimmed);
+		}
+		stopRenamingPane();
+	};
 
 	const terminalContainerRef = useRef<HTMLDivElement>(null);
 	const getClearCallback = useTerminalCallbacksStore((s) => s.getClearCallback);
@@ -96,9 +122,28 @@ export function TabPane({
 			renderToolbar={(handlers) => (
 				<div className="flex h-full w-full items-center justify-between px-3">
 					<div className="flex min-w-0 items-center gap-2">
-						<span className="truncate text-sm text-muted-foreground">
-							{paneName || "Terminal"}
-						</span>
+						{isRenamingThisPane ? (
+							<input
+								ref={renameInputRef}
+								value={draftName}
+								onChange={(e) => setDraftName(e.target.value)}
+								onBlur={commitRename}
+								onKeyDown={(e) => {
+									if (e.key === "Enter") {
+										e.preventDefault();
+										commitRename();
+									} else if (e.key === "Escape") {
+										e.preventDefault();
+										stopRenamingPane();
+									}
+								}}
+								className="min-w-0 border-b border-muted-foreground/40 bg-transparent text-sm text-muted-foreground outline-none"
+							/>
+						) : (
+							<span className="truncate text-sm text-muted-foreground">
+								{paneName || "Terminal"}
+							</span>
+						)}
 						{paneStatus && paneStatus !== "idle" && (
 							<StatusIndicator status={paneStatus} />
 						)}

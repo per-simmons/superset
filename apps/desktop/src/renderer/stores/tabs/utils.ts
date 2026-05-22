@@ -406,6 +406,33 @@ export const isLastPaneInTab = (
 	return getPaneIdsForTab(panes, tabId).length === 1;
 };
 
+export type RenameTarget =
+	| { type: "tab"; tabId: string }
+	| { type: "pane"; paneId: string }
+	| null;
+
+/**
+ * Decides whether cmd+I should rename the focused sub-pane or the top-level tab.
+ * Returns a pane target only when the active tab is split (>1 pane) AND the
+ * focused pane is a terminal — the only pane type with a rename UI today.
+ */
+export const resolveRenameTarget = (args: {
+	activeTabId: string | null;
+	panesForTab: readonly Pane[];
+	focusedPane: Pane | undefined;
+}): RenameTarget => {
+	const { activeTabId, panesForTab, focusedPane } = args;
+	if (!activeTabId) return null;
+	if (
+		panesForTab.length > 1 &&
+		focusedPane &&
+		focusedPane.type === "terminal"
+	) {
+		return { type: "pane", paneId: focusedPane.id };
+	}
+	return { type: "tab", tabId: activeTabId };
+};
+
 /**
  * Removes a pane ID from a mosaic layout tree
  * Returns null if the layout becomes empty after removal

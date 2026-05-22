@@ -15,11 +15,14 @@ import {
 import { electronTrpc } from "renderer/lib/electron-trpc";
 import { usePresets } from "renderer/react-query/presets";
 import { useCollections } from "renderer/routes/_authenticated/providers/CollectionsProvider";
+import { useAppHotkey } from "renderer/stores/hotkeys";
+import { useRenamePaneStore } from "renderer/stores/rename-pane-store";
 import { useTabsStore } from "renderer/stores/tabs/store";
 import { useTabsWithPresets } from "renderer/stores/tabs/useTabsWithPresets";
 import {
 	isLastPaneInTab,
 	resolveActiveTabIdForWorkspace,
+	resolveRenameTarget,
 } from "renderer/stores/tabs/utils";
 import {
 	DEFAULT_SHOW_PRESETS_BAR,
@@ -52,6 +55,7 @@ export function GroupStrip() {
 	const { presets } = usePresets();
 	const navigate = useNavigate();
 
+	const addFileViewerPane = useTabsStore((s) => s.addFileViewerPane);
 	const hasAiChat = useFeatureFlagEnabled(FEATURE_FLAGS.AI_CHAT);
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
 	const tabsTrackRef = useRef<HTMLDivElement>(null);
@@ -122,6 +126,32 @@ export function GroupStrip() {
 		});
 	}, [activeWorkspaceId, activeTabIds, allTabs, tabHistoryStacks]);
 
+	// Cmd+I rename: if active tab is split (>1 pane) and a terminal sub-pane
+	// has focus, rename that pane. Otherwise rename the top-level tab.
+	const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
+	useAppHotkey(
+		"RENAME_TAB",
+		() => {
+			const state = useTabsStore.getState();
+			const focusedPaneId = activeTabId
+				? state.focusedPaneIds[activeTabId]
+				: undefined;
+			const target = resolveRenameTarget({
+				activeTabId,
+				panesForTab: activeTabId ? state.getPanesForTab(activeTabId) : [],
+				focusedPane: focusedPaneId ? state.panes[focusedPaneId] : undefined,
+			});
+			if (!target) return;
+			if (target.type === "pane") {
+				useRenamePaneStore.getState().startRenamingPane(target.paneId);
+			} else {
+				setRenamingTabId(target.tabId);
+			}
+		},
+		{ preventDefault: true },
+		[activeTabId],
+	);
+
 	// Compute aggregate status per tab using shared priority logic
 	const tabStatusMap = useMemo(() => {
 		const result = new Map<string, ActivePaneStatus>();
@@ -178,9 +208,34 @@ export function GroupStrip() {
 		}
 	}, [chatSessions, chatPaneSessionMap, setTabAutoTitle, shouldSyncChatTitles]);
 
+	// Workspace query + note/session mutations (must be before handlers that use them)
+	const { data: workspace } = electronTrpc.workspaces.get.useQuery(
+		{ id: activeWorkspaceId! },
+		{ enabled: !!activeWorkspaceId },
+	);
+	const createNoteMutation = electronTrpc.filesystem.createNote.useMutation();
+	const logSessionMutation = electronTrpc.filesystem.logSession.useMutation();
+
+	const logSession = useCallback(
+		(tabName: string, action: "created" | "renamed" | "closed", extra?: { oldName?: string; createdAt?: string }) => {
+			if (!workspace?.project?.mainRepoPath) return;
+			logSessionMutation.mutate({
+				rootPath: workspace.project.mainRepoPath,
+				tabName,
+				action,
+				...extra,
+			});
+		},
+		[workspace?.project?.mainRepoPath, logSessionMutation],
+	);
+
 	const handleAddGroup = () => {
 		if (!activeWorkspaceId) return;
-		addTab(activeWorkspaceId);
+		const result = addTab(activeWorkspaceId);
+		if (result) {
+			const tab = useTabsStore.getState().tabs.find((t) => t.id === result.tabId);
+			if (tab) logSession(tab.name || "Terminal", "created");
+		}
 	};
 
 	const handleAddChat = () => {
@@ -192,6 +247,23 @@ export function GroupStrip() {
 		if (!activeWorkspaceId) return;
 		addBrowserTab(activeWorkspaceId);
 	};
+
+	const handleAddNote = useCallback(async () => {
+		if (!activeWorkspaceId || !workspace?.project?.mainRepoPath) return;
+		try {
+			const result = await createNoteMutation.mutateAsync({
+				rootPath: workspace.project.mainRepoPath,
+			});
+			addFileViewerPane(activeWorkspaceId, {
+				filePath: result.relativePath,
+				viewMode: "raw",
+				isPinned: true,
+				openInNewTab: true,
+			});
+		} catch (error) {
+			console.error("[GroupStrip] Failed to create note:", error);
+		}
+	}, [activeWorkspaceId, workspace?.project?.mainRepoPath, createNoteMutation, addFileViewerPane]);
 
 	const handleOpenPreset = useCallback(
 		(preset: TerminalPreset) => {
@@ -212,11 +284,24 @@ export function GroupStrip() {
 	};
 
 	const handleCloseGroup = (tabId: string) => {
+		const tab = tabs.find((t) => t.id === tabId);
+		if (tab) {
+			const created = new Date(tab.createdAt).toLocaleString("en-US", {
+				month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true,
+			});
+			logSession(tab.userTitle || tab.name || "Terminal", "closed", { createdAt: created });
+		}
 		removeTab(tabId);
 	};
 
 	const handleRenameGroup = (tabId: string, newName: string) => {
+		const tab = tabs.find((t) => t.id === tabId);
+		const oldName = tab?.userTitle || tab?.name || "Terminal";
+		const created = tab ? new Date(tab.createdAt).toLocaleString("en-US", {
+			month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true,
+		}) : undefined;
 		renameTab(tabId, newName);
+		logSession(newName, "renamed", { oldName, createdAt: created });
 	};
 
 	const handleReorderTabs = useCallback(
@@ -264,6 +349,24 @@ export function GroupStrip() {
 		requestAnimationFrame(updateOverflow);
 	}, [updateOverflow]);
 
+	// Scroll the active tab into view when it changes (e.g. cmd+shift+]/[ cycle).
+	// Without this, cycling past the visible window leaves the active tab off-screen
+	// and the strip doesn't follow.
+	useEffect(() => {
+		if (!activeTabId) return;
+		const container = scrollContainerRef.current;
+		if (!container) return;
+		const el = container.querySelector<HTMLElement>(
+			`[data-tab-id="${activeTabId}"]`,
+		);
+		if (!el) return;
+		el.scrollIntoView({
+			behavior: "smooth",
+			block: "nearest",
+			inline: "nearest",
+		});
+	}, [activeTabId]);
+
 	const useCompactAddButton =
 		useCompactTerminalAddButton ?? DEFAULT_USE_COMPACT_TERMINAL_ADD_BUTTON;
 
@@ -278,6 +381,7 @@ export function GroupStrip() {
 			onAddTerminal={handleAddGroup}
 			onAddChat={handleAddChat}
 			onAddBrowser={handleAddBrowser}
+			onAddNote={handleAddNote}
 			onOpenPreset={handleOpenPreset}
 			onConfigurePresets={handleOpenPresetsSettings}
 			onToggleShowPresetsBar={(enabled) =>
@@ -303,6 +407,7 @@ export function GroupStrip() {
 								return (
 									<div
 										key={tab.id}
+										data-tab-id={tab.id}
 										className="h-full shrink-0"
 										style={{ width: "160px" }}
 									>
@@ -310,10 +415,12 @@ export function GroupStrip() {
 											tab={tab}
 											index={index}
 											isActive={tab.id === activeTabId}
+											isRenaming={renamingTabId === tab.id}
 											status={tabStatusMap.get(tab.id) ?? null}
 											onSelect={() => handleSelectGroup(tab.id)}
 											onClose={() => handleCloseGroup(tab.id)}
 											onRename={(newName) => handleRenameGroup(tab.id, newName)}
+											onRenameStarted={() => setRenamingTabId(null)}
 											onPaneDrop={(paneId) => movePaneToTab(paneId, tab.id)}
 											onReorder={handleReorderTabs}
 										/>

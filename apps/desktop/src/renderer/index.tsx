@@ -78,3 +78,21 @@ if (!rootElement) {
 	);
 	markBootMounted();
 }
+
+// Dev-only test bridge: expose stores + router so external scripts (curl ->
+// main process /test/eval -> webContents.executeJavaScript) can drive the app.
+if (process.env.NODE_ENV === "development") {
+	void (async () => {
+		const { useTabsStore } = await import("./stores/tabs/store");
+		const { useRenamePaneStore } = await import("./stores/rename-pane-store");
+		const { electronTrpcClient } = await import("./lib/trpc-client");
+		const w = window as unknown as { __damon?: unknown };
+		w.__damon = {
+			useTabsStore,
+			useRenamePaneStore,
+			trpc: electronTrpcClient,
+			router,
+		};
+		console.log("[damon-test] window.__damon ready");
+	})();
+}

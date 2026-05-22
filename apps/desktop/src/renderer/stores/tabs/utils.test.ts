@@ -1,12 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import type { MosaicNode } from "react-mosaic-component";
-import type { Tab } from "./types";
+import type { Pane, Tab } from "./types";
 import {
 	buildMultiPaneLayout,
 	findPanePath,
 	getAdjacentPaneId,
 	resolveActiveTabIdForWorkspace,
 	resolveFileViewerMode,
+	resolveRenameTarget,
 } from "./utils";
 
 describe("findPanePath", () => {
@@ -517,5 +518,67 @@ describe("resolveFileViewerMode", () => {
 				viewMode: "diff",
 			}),
 		).toBe("diff");
+	});
+});
+
+describe("resolveRenameTarget", () => {
+	const makePane = (overrides: Partial<Pane> & Pick<Pane, "id">): Pane => ({
+		tabId: "tab-1",
+		type: "terminal",
+		name: "Terminal",
+		...overrides,
+	});
+
+	it("returns null when there is no active tab", () => {
+		expect(
+			resolveRenameTarget({
+				activeTabId: null,
+				panesForTab: [],
+				focusedPane: undefined,
+			}),
+		).toBeNull();
+	});
+
+	it("targets the tab when only one pane exists (no split)", () => {
+		const pane = makePane({ id: "p1" });
+		expect(
+			resolveRenameTarget({
+				activeTabId: "tab-1",
+				panesForTab: [pane],
+				focusedPane: pane,
+			}),
+		).toEqual({ type: "tab", tabId: "tab-1" });
+	});
+
+	it("targets the tab when split but no focused pane", () => {
+		expect(
+			resolveRenameTarget({
+				activeTabId: "tab-1",
+				panesForTab: [makePane({ id: "p1" }), makePane({ id: "p2" })],
+				focusedPane: undefined,
+			}),
+		).toEqual({ type: "tab", tabId: "tab-1" });
+	});
+
+	it("targets the tab when split and focused pane is non-terminal", () => {
+		const chatPane = makePane({ id: "p1", type: "chat-mastra" });
+		expect(
+			resolveRenameTarget({
+				activeTabId: "tab-1",
+				panesForTab: [chatPane, makePane({ id: "p2" })],
+				focusedPane: chatPane,
+			}),
+		).toEqual({ type: "tab", tabId: "tab-1" });
+	});
+
+	it("targets the focused terminal pane when tab is split", () => {
+		const focused = makePane({ id: "p2" });
+		expect(
+			resolveRenameTarget({
+				activeTabId: "tab-1",
+				panesForTab: [makePane({ id: "p1" }), focused],
+				focusedPane: focused,
+			}),
+		).toEqual({ type: "pane", paneId: "p2" });
 	});
 });
