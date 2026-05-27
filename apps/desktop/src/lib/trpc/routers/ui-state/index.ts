@@ -41,6 +41,7 @@ const paneSchema = z.object({
 		"devtools",
 	]),
 	name: z.string(),
+	userTitle: z.string().optional(),
 	isNew: z.boolean().optional(),
 	status: z.enum(["idle", "working", "permission", "review"]).optional(),
 	initialCwd: z.string().optional(),
