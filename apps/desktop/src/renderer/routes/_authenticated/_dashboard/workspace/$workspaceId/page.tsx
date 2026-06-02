@@ -203,9 +203,9 @@ function WorkspacePage() {
 	useAppHotkey(
 		"CLOSE_TERMINAL",
 		() => {
-			if (focusedPaneId) {
-				removePane(focusedPaneId);
-			}
+			if (!focusedPaneId) return;
+			if (!window.confirm("Close this pane?")) return;
+			removePane(focusedPaneId);
 		},
 		undefined,
 		[focusedPaneId, removePane],
@@ -213,9 +213,9 @@ function WorkspacePage() {
 	useAppHotkey(
 		"CLOSE_TAB",
 		() => {
-			if (activeTabId) {
-				removeTab(activeTabId);
-			}
+			if (!activeTabId) return;
+			if (!window.confirm("Close this tab and all of its panes?")) return;
+			removeTab(activeTabId);
 		},
 		undefined,
 		[activeTabId, removeTab],
